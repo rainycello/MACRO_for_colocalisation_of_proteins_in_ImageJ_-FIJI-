@@ -9,7 +9,7 @@ To jest macro, ktore wykonuje pierwsze polecenie z pierwszych cwiczen.
 6) Mierzy ROI
 */
 
-// SPLIT CHANNELS
+/// SPLIT CHANNELS
 Dialog.create("Split Channels");
 Dialog.addCheckbox("splitChannels", true);
 Dialog.show();
@@ -100,34 +100,37 @@ Dialog.show();
 useROI = Dialog.getCheckbox();
 
 if (useROI) {
+    // Initialize ROI Manager and select ROIs for each channel
     run("ROI Manager...");
     waitForUser("Use the ROI Manager to add and select ROIs, then press OK.");
-    run("Measure");  // Measure the ROIs after they have been selected
-
-    // Now collect the measurements from the results
-    var measurements = newArray();  // Initialize an empty array
-    var numResults = nResults();  // Get the number of results in the results table
-
-    // Ensure that there are results to collect
-    if (numResults > 0) {
-        // Loop over the results to collect the measurements
-        for (var i = 0; i < numResults; i++) {
-            // Get measurement value, here I use "Area", but you can change it to other measurements like "Mean", "Max", etc.
-            var measurementValue = getResult("Area", i);  
+    
+    // Clear the Results table before populating it
+    run("Clear Results");
+    
+    // Loop through each channel and measure ROIs
+    var measurementIndex = 0; // Index for storing measurements in the Results table
+    for (var i = 1; i <= numChannelsAfterSplit; i++) {
+        selectImage(i);
+        var channelName = getTitle();
+        print("Measuring ROIs for " + channelName);
+        
+        // Measure ROIs for this channel
+        run("Measure");
+        
+        // Collect measurements for this channel
+        var numResults = nResults();  
+        
+        for (var j = 0; j < numResults; j++) {
+            var measurementValue = getResult("Area", j);  
             
-            // Manually extend the array to add the measurement
-            measurements[measurements.length] = measurementValue;
+            // Output measurement to Results table
+            setResult("Channel", measurementIndex, channelName);
+            setResult("ROI", measurementIndex, j + 1);
+            setResult("Area", measurementIndex, measurementValue);
+            measurementIndex++;
             
-            print("Measurement for ROI " + (i + 1) + ": " + measurementValue);
+            print(channelName + " - ROI " + (j + 1) + ": " + measurementValue);
         }
-
-        // Print all collected measurements (correcting the syntax error)
-        print("All Measurements: ");
-        for (var j = 0; j < measurements.length; j++) {
-            print("Measurement " + (j + 1) + ": " + measurements[j]);
-        }
-    } else {
-        print("No results to collect.");
     }
 }
 
