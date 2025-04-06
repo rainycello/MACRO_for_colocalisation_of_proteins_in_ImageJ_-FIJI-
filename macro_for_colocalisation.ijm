@@ -7,6 +7,8 @@ To jest macro, ktore wykonuje pierwsze polecenie z pierwszych cwiczen.
 5) Filtruje za pomoca "Despeckle"
 7) Sprawdza przesycenie jeszcze raz
 6) Mierzy ROI
+
+*mierzy tylko jedno ROI na jeden preparat mikroskopowy!
 */
 
 /// SPLIT CHANNELS
@@ -144,3 +146,4 @@ Dialog.show();
 print("Split Channels: " + splitChannels);
 print("Background Subtraction Applied: " + subtractBackground);
 print("ROI Used: " + useROI);
+
