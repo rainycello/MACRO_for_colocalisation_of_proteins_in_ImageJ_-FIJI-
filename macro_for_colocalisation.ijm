@@ -8,10 +8,13 @@ To jest macro, ktore wykonuje pierwsze polecenie z pierwszych cwiczen.
 7) Sprawdza przesycenie jeszcze raz
 6) Mierzy ROI
 
-*mierzy tylko jedno ROI na jeden preparat mikroskopowy!
+=============================================================================================================================================
+Mierzy tylko jedno ROI na jeden preparat! Wzskakujace okienko "Results" pokazuje zmiezrone ROI dla kompozycji kanalow, czyli chociaz i bedzie 
+pokazywalo ze pomiary odnosza sie roznych channels, w koncu beda pokazywaly pomiary tylko dla kompozytu channels
+=============================================================================================================================================
 */
 
-/// SPLIT CHANNELS
+// SPLIT CHANNELS
 Dialog.create("Split Channels");
 Dialog.addCheckbox("splitChannels", true);
 Dialog.show();
@@ -36,11 +39,12 @@ if (splitChannels) {
 run("8-bit");
 
 var totalOversaturatedPixelsBefore = 0;
-var totalOversaturatedPixelsAfter = 0;
+var totalOversaturatedPixelsAfterBackgroundSubtraction = 0;
+var totalOversaturatedPixelsAfterDespeckle = 0;
 
 var numChannelsAfterSplit = nImages(); 
 
-// PROCESS IMAGES AND GET OVERSATURATED PIXELS BEFORE BACKGROUND SUBTRACTION
+// UZYSKANIE PRZESYCONYCH PIKSELI PRZED ODEJMOWANIEM TLA
 for (i = 1; i <= numChannelsAfterSplit; i++) {
     selectImage(i);
     var channelName = getTitle();
@@ -58,11 +62,11 @@ for (i = 1; i <= numChannelsAfterSplit; i++) {
 
 print("Total number of oversaturated pixels across all images (before background subtraction): " + totalOversaturatedPixelsBefore);
 
-// APPLY BACKGROUND SUBTRACTION TO EACH CHANNEL
+// SUBSTRAKCJA TLA WE WSZYSTKICH KANALACH
 for (var i = 1; i <= numChannelsAfterSplit; i++) {
     selectImage(i);
     var channelName = getTitle();
-    print("Processing image (for subtraction): " + channelName + ", Image ID: " + getImageID());
+    print("Processing image (for background subtraction): " + channelName + ", Image ID: " + getImageID());
 
     Dialog.create("Background Subtraction for " + channelName);
     Dialog.addCheckbox("subtractBackground", true);
@@ -76,25 +80,38 @@ for (var i = 1; i <= numChannelsAfterSplit; i++) {
         run("Subtract Background...", "rolling=" + rollingRadius);
         print("Background subtraction applied to " + channelName);
 
-        // DODANIE FILTRA MEDIANOWEGO
-        run("Despeckle");
+        var valuesAfterBackgroundSubtraction = newArray(256);
+        var countsAfterBackgroundSubtraction = newArray(256);
+        getHistogram(valuesAfterBackgroundSubtraction, countsAfterBackgroundSubtraction, 256);
+        var oversaturated_pixels_after_background_subtraction = countsAfterBackgroundSubtraction[255];
+        totalOversaturatedPixelsAfterBackgroundSubtraction += oversaturated_pixels_after_background_subtraction;
+
+        print(channelName + ": Number of oversaturated pixels (after background subtraction, before despeckle): " + oversaturated_pixels_after_background_subtraction);
+
+        // DESPECKLE
+        Dialog.create("Despeckle Parameters");
+        Dialog.addNumber("despeckleRadius", 20, 0, 100, 0); 
+        Dialog.show();
+        var despeckleRadius = Dialog.getNumber();
+        run("Despeckle", "radius=" + despeckleRadius);
         print("Despeckle filter applied to " + channelName);
 
-        // CHECK OVERSATURATION AFTER BACKGROUND SUBTRACTION
-        var valuesAfter = newArray(256);
-        var countsAfter = newArray(256);
-        getHistogram(valuesAfter, countsAfter, 256);
+        var valuesDespeckle = newArray(256);
+        var countsDespeckle = newArray(256);
+        getHistogram(valuesDespeckle, countsDespeckle, 256);
+        var oversaturated_pixels_despeckle = countsDespeckle[255];
+        totalOversaturatedPixelsAfterDespeckle += oversaturated_pixels_despeckle;
 
-        oversaturated_pixels_after = countsAfter[255];
-        totalOversaturatedPixelsAfter += oversaturated_pixels_after;
-
-        print(channelName + ": Number of oversaturated pixels (after background subtraction): " + oversaturated_pixels_after);
+        print(channelName + ": Number of oversaturated pixels (after background subtraction and after despeckle): " + oversaturated_pixels_despeckle);
     } else {
         print("No background subtraction applied to " + channelName);
     }
 }
 
-// ROI SELECTION AND MEASUREMENT
+// TOTAL OVERSATURATED PIXELS
+print("Total number of oversaturated pixels across all images (after background subtraction and after despeckle): " + totalOversaturatedPixelsAfterDespeckle);
+
+// ROI
 Dialog.create("ROI Selection");
 Dialog.addCheckbox("useROI", true);
 Dialog.addMessage("If checked, please use the ROI Manager to select ROIs.");
@@ -102,48 +119,66 @@ Dialog.show();
 useROI = Dialog.getCheckbox();
 
 if (useROI) {
-    // Initialize ROI Manager and select ROIs for each channel
     run("ROI Manager...");
-    waitForUser("Use the ROI Manager to add and select ROIs, then press OK.");
+    roiCount = 0;
+    while (roiCount == 0) {
+        waitForUser("Please add at least ONE ROI using the ROI Manager, then click OK.");
+        roiCount = roiManager("count");
+        
+        if (roiCount == 0) {
+            showMessage("No ROIs Found", "You must select at least one ROI to continue.");
+        }
+    }
     
-    // Clear the Results table before populating it
     run("Clear Results");
-    
-    // Loop through each channel and measure ROIs
-    var measurementIndex = 0; // Index for storing measurements in the Results table
+
+    var measurementIndex = 0;
     for (var i = 1; i <= numChannelsAfterSplit; i++) {
         selectImage(i);
         var channelName = getTitle();
         print("Measuring ROIs for " + channelName);
-        
-        // Measure ROIs for this channel
-        run("Measure");
-        
-        // Collect measurements for this channel
-        var numResults = nResults();  
-        
-        for (var j = 0; j < numResults; j++) {
-            var measurementValue = getResult("Area", j);  
-            
-            // Output measurement to Results table
+
+        for (var roiIndex = 0; roiIndex < roiCount; roiIndex++) {
+            roiManager("select", roiIndex);
+            roiManager("measure");
+
+            var measurementValue = getResult("Area", nResults() - 1);
             setResult("Channel", measurementIndex, channelName);
-            setResult("ROI", measurementIndex, j + 1);
+            setResult("ROI", measurementIndex, roiIndex + 1);
             setResult("Area", measurementIndex, measurementValue);
             measurementIndex++;
-            
-            print(channelName + " - ROI " + (j + 1) + ": " + measurementValue);
+
+            print(channelName + " - ROI " + (roiIndex + 1) + ": " + measurementValue);
         }
     }
 }
 
-// SUMMARY DIALOG
-Dialog.create("Summary");
-Dialog.addMessage("Split Channels: " + splitChannels);
-Dialog.addMessage("Background Subtraction Applied: " + subtractBackground);
-Dialog.addMessage("ROI Used: " + useROI);
+Dialog.create("Colocalization Analysis");
+Dialog.addCheckbox("runColoc", true);
+Dialog.addChoice("Colocalize channels:", newArray("Channel_1 & Channel_2", "Channel_1 & Channel_3", "Channel_2 & Channel_3"), "Channel_1 & Channel_2");
 Dialog.show();
+runColoc = Dialog.getCheckbox();
+selectedPair = Dialog.getChoice();
 
-print("Split Channels: " + splitChannels);
-print("Background Subtraction Applied: " + subtractBackground);
-print("ROI Used: " + useROI);
+if (runColoc) {
+    splitPair = split(selectedPair, " & ");
+    channelA = splitPair[0];
+    channelB = splitPair[1];
+    
+    selectWindow(channelA);
+    run("Duplicate...", "title=colocA");
+    selectWindow(channelB);
+    run("Duplicate...", "title=colocB");
 
+    if (nImages() > 2) {
+        print("Attempting colocalization on channels: " + channelA + " and " + channelB);
+        
+        selectWindow("colocA");
+        run("Merge Channels...", "c1=colocA c2=colocB create keep");
+        run("Coloc 2", "channel_1=colocA channel_2=colocB");
+
+        print("Colocalization analysis run on " + channelA + " and " + channelB);
+    } else {
+        print("Not enough images to perform colocalization.");
+    }
+}
